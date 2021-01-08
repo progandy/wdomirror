@@ -14,6 +14,7 @@
 #include "wlr-export-dmabuf-unstable-v1-client-protocol.h"
 #include "linux-dmabuf-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
+#include "viewporter-client-protocol.h"
 
 struct wayland_output {
   struct wl_list link;
@@ -55,6 +56,7 @@ struct window {
   struct wl_surface *surface;
   struct xdg_surface *xdg_surface;
   struct xdg_toplevel *xdg_toplevel;
+  struct wp_viewport *viewport;
   bool init;
   int width, height;
 };
@@ -66,6 +68,7 @@ struct mirror_context {
   struct wl_compositor *compositor;
   struct xdg_wm_base *xdg_wm_base;
   struct zwp_linux_dmabuf_v1 *dmabuf;
+  struct wp_viewporter *viewporter;
 
   struct wl_list output_list;
 
@@ -175,13 +178,17 @@ static void registry_handle_add(void *data, struct wl_registry *reg,
 
   if (!strcmp(interface, wl_compositor_interface.name)) {
     ctx->compositor = wl_registry_bind(reg, id, &wl_compositor_interface, 1);
-  } 
-  
+  }
+
+  if (!strcmp(interface, wp_viewporter_interface.name)) {
+    ctx->viewporter = wl_registry_bind(reg, id, &wp_viewporter_interface, 1);
+  }
+
   if (!strcmp(interface, xdg_wm_base_interface.name)) {
     ctx->xdg_wm_base = wl_registry_bind(reg, id, &xdg_wm_base_interface, 1);
     xdg_wm_base_add_listener(ctx->xdg_wm_base, &xdg_wm_base_listener, ctx);
-  } 
-  
+  }
+
   if (!strcmp(interface, zwp_linux_dmabuf_v1_interface.name)) {
     if (ver < 3) {
       return;
@@ -248,7 +255,7 @@ static void frame_start(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
 
   f->width = width;
   f->height = height;
-  
+
   ctx->incomplete_frame = f;
 
   return;
@@ -308,6 +315,8 @@ static void frame_ready(void *data, struct zwlr_export_dmabuf_frame_v1 *frame,
 
 
   // TODO: handle failed creation
+  // TODO: handle rotation
+  // TODO: necessary to handle Y_INVERT differences?
   f->buffer =
       zwp_linux_buffer_params_v1_create_immed(params,
                 f->width,
@@ -363,7 +372,7 @@ static void request_frame(struct mirror_context *ctx) {
 
 
 
-static void xdg_surface_handle_configure(void *data, 
+static void xdg_surface_handle_configure(void *data,
     struct xdg_surface *surface, uint32_t serial) {
   struct mirror_context *ctx = data;
 
@@ -376,9 +385,21 @@ static const struct xdg_surface_listener xdg_surface_listener = {
   xdg_surface_handle_configure,
 };
 
-static void xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *toplevel, 
+static void xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *toplevel,
     int32_t width, int32_t height, struct wl_array *states) {
-  /* Empty */
+
+  struct mirror_context *ctx = data;
+  if (width > 0) {
+    ctx->window->width = width;
+  }
+  if (height > 0) {
+    ctx->window->height = height;
+  }
+
+  if (ctx->window->viewport && ctx->window->width > 0 && ctx->window->height > 0) {
+    // TODO: aspect ratio?
+    wp_viewport_set_destination(ctx->window->viewport, ctx->window->width, ctx->window->height);
+  }
 }
 
 static void
@@ -489,6 +510,10 @@ int window_create(struct mirror_context *ctx) {
   window->xdg_toplevel = xdg_surface_get_toplevel(window->xdg_surface);
   xdg_toplevel_add_listener(window->xdg_toplevel, &xdg_toplevel_listener, ctx);
 
+  if (ctx->viewporter) {
+    window->viewport = wp_viewporter_get_viewport(ctx->viewporter, window->surface);
+  }
+
   xdg_toplevel_set_title(window->xdg_toplevel, "wlr dmabuf output mirror");
 
   wl_surface_commit(window->surface);
@@ -500,7 +525,7 @@ int window_create(struct mirror_context *ctx) {
 
 
 static void display_frame(struct mirror_context *ctx) {
-  
+
   struct frame *next = ctx->next_frame;
   ctx->next_frame = NULL;
   if (!next) return;
@@ -552,8 +577,8 @@ int main(int argc, char *argv[]) {
   ctx.w = o->width;
   ctx.h = o->height;
   ctx.with_cursor = true;
-  
-  
+
+
   err = window_create(&ctx);
   if (err) {
     goto end;
