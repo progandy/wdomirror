@@ -1,5 +1,8 @@
 # wdomirror
 
+> [!IMPORTANT]
+> This project has been archived in favor of the more reliable [wf-mirror](https://github.com/Ferdi265/wl-mirror) by Ferdi265
+
 wdomirror utilizes the wlroots dmabuf export protocol to create a mirror of an outout 
 with as little overhead as possible. 
 
