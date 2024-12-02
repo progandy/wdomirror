@@ -409,9 +409,14 @@ xdg_toplevel_handle_close(void *data, struct xdg_toplevel *xdg_toplevel)
   ctx->quit = true;
 }
 
+static void
+xdg_toplevel_handle_configure_bounds(void *data, struct xdg_toplevel *toplevel, int32_t width, int32_t height)
+{ }
+
 static const struct xdg_toplevel_listener xdg_toplevel_listener = {
   xdg_toplevel_handle_configure,
   xdg_toplevel_handle_close,
+  xdg_toplevel_handle_configure_bounds
 };
 
 
